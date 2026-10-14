@@ -77,5 +77,25 @@ class ListingToRowTests(unittest.TestCase):
         self.assertEqual(len(data_rows), len(rows))
 
 
+class ResolveShopIdTests(unittest.TestCase):
+    def test_unset_falls_back_to_default(self):
+        self.assertEqual(
+            pinterest_feed.resolve_shop_id({}), pinterest_feed.DEFAULT_SHOP_ID
+        )
+
+    def test_empty_falls_back_to_default(self):
+        # What GitHub Actions passes for `${{ vars.ETSY_SHOP_ID }}` when the
+        # repo variable does not exist.
+        self.assertEqual(
+            pinterest_feed.resolve_shop_id({"ETSY_SHOP_ID": ""}),
+            pinterest_feed.DEFAULT_SHOP_ID,
+        )
+
+    def test_set_value_wins(self):
+        self.assertEqual(
+            pinterest_feed.resolve_shop_id({"ETSY_SHOP_ID": "12345"}), "12345"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
