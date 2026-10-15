@@ -126,6 +126,15 @@ def write_tsv(rows, path):
         writer.writerows(rows)
 
 
+def resolve_shop_id(environ):
+    """ETSY_SHOP_ID, or the default when it is unset or empty.
+
+    GitHub Actions passes an unset repo variable through as "", so an empty
+    value must fall back too, not only a missing one.
+    """
+    return environ.get("ETSY_SHOP_ID", "").strip() or DEFAULT_SHOP_ID
+
+
 def main():
     api_key = os.environ.get("ETSY_API_KEY")
     if not api_key:
@@ -134,7 +143,7 @@ def main():
             "with shop read access — see the PR description for the exact "
             "steps to create one and add it as a repo secret."
         )
-    shop_id = os.environ.get("ETSY_SHOP_ID", DEFAULT_SHOP_ID)
+    shop_id = resolve_shop_id(os.environ)
 
     listings = fetch_active_listings(shop_id, api_key)
     rows = build_rows(listings)
