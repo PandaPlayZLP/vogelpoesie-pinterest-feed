@@ -8,6 +8,8 @@ import sys
 
 import requests
 
+from etsy_auth import api_key_header
+
 ETSY_API_BASE = "https://openapi.etsy.com/v3/application"
 
 # Default shop id inferred from the Etsy CDN image paths baked into the
@@ -53,39 +55,75 @@ def slugify(value):
 
 
 def classify(title):
+    """(product_type, gpc, suffix) for the first matching rule, else None."""
     for keyword, product_type, gpc, suffix in PRODUCT_RULES:
         if keyword.lower() in title.lower():
             return product_type, gpc, suffix
-    raise ValueError(f"no product rule matches listing title: {title!r}")
+    return None
 
 
-def fetch_active_listings(shop_id, api_key):
-    """Yield every active listing for the shop, with images included."""
+# Etsy caps both the active-listings page size and the batch lookup at 100.
+PAGE_SIZE = 100
+
+
+def fetch_active_listings(shop_id, api_key_value):
+    """Return every active listing for the shop, with images included.
+
+    findAllActiveListingsByShop does not accept `includes`, so images come
+    from a second, batched getListingsByListingIds call.
+    """
     session = requests.Session()
-    session.headers["x-api-key"] = api_key
+    session.headers["x-api-key"] = api_key_value
 
+    listing_ids = []
     offset = 0
-    limit = 100
     while True:
         response = session.get(
             f"{ETSY_API_BASE}/shops/{shop_id}/listings/active",
-            params={"limit": limit, "offset": offset, "includes": "Images"},
+            params={"limit": PAGE_SIZE, "offset": offset},
             timeout=30,
         )
         response.raise_for_status()
         payload = response.json()
         results = payload.get("results", [])
-        yield from results
+        listing_ids.extend(listing["listing_id"] for listing in results)
 
         offset += len(results)
         if not results or offset >= payload.get("count", 0):
             break
 
+    listings = []
+    for start in range(0, len(listing_ids), PAGE_SIZE):
+        chunk = listing_ids[start : start + PAGE_SIZE]
+        response = session.get(
+            f"{ETSY_API_BASE}/listings/batch",
+            params={
+                "listing_ids": ",".join(str(listing_id) for listing_id in chunk),
+                "includes": "Images",
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        listings.extend(
+            listing
+            for listing in response.json().get("results", [])
+            # A listing can go inactive between the two calls.
+            if listing.get("state", "active") == "active"
+        )
+    # Keep the active-listings order so feed.tsv does not churn between runs.
+    position = {listing_id: index for index, listing_id in enumerate(listing_ids)}
+    listings.sort(key=lambda listing: position.get(listing["listing_id"], len(position)))
+    return listings
+
 
 def listing_to_row(listing):
+    """One feed row, or None when no product rule matches the title."""
     title = clean_text(listing["title"])
     bird = slugify(title.split(" ")[0])
-    product_type, gpc, suffix = classify(title)
+    match = classify(title)
+    if match is None:
+        return None
+    product_type, gpc, suffix = match
 
     images = sorted(listing.get("images", []), key=lambda img: img.get("rank", 0))
     image_urls = [img["url_fullxfull"] for img in images]
@@ -114,7 +152,21 @@ def listing_to_row(listing):
 
 
 def build_rows(listings):
-    return [listing_to_row(listing) for listing in listings]
+    """Feed rows for every classifiable listing; unmatched titles are logged
+    to stderr and skipped so one new product type cannot kill the feed."""
+    rows = []
+    for listing in listings:
+        row = listing_to_row(listing)
+        if row is None:
+            # ::warning:: surfaces the skip as an annotation on the Actions run.
+            print(
+                f"::warning::skipped listing {listing['listing_id']}: no product rule "
+                f"matches title {clean_text(listing['title'])!r}",
+                file=sys.stderr,
+            )
+            continue
+        rows.append(row)
+    return rows
 
 
 def write_tsv(rows, path):
@@ -136,19 +188,18 @@ def resolve_shop_id(environ):
 
 
 def main():
-    api_key = os.environ.get("ETSY_API_KEY")
-    if not api_key:
-        sys.exit(
-            "ETSY_API_KEY is not set. This script needs an Etsy API keystring "
-            "with shop read access — see the PR description for the exact "
-            "steps to create one and add it as a repo secret."
-        )
+    api_key_value = api_key_header(os.environ)
     shop_id = resolve_shop_id(os.environ)
 
-    listings = fetch_active_listings(shop_id, api_key)
+    listings = fetch_active_listings(shop_id, api_key_value)
+    if not listings:
+        sys.exit("Etsy returned zero active listings — refusing to write an empty feed.")
     rows = build_rows(listings)
     if not rows:
-        sys.exit("Etsy returned zero active listings — refusing to write an empty feed.")
+        sys.exit(
+            f"none of {len(listings)} active listings matches a product rule — "
+            "refusing to write an empty feed."
+        )
 
     write_tsv(rows, "feed.tsv")
     print(f"wrote feed.tsv with {len(rows)} rows")

@@ -11,6 +11,8 @@ import sys
 
 import requests
 
+from etsy_auth import api_key_header
+
 ETSY_API_BASE = "https://openapi.etsy.com/v3/application"
 CONFIG_PATH = "config/stock_watch.json"
 REPORT_PATH = "low-stock.md"
@@ -51,13 +53,11 @@ def render_report(low, threshold):
 
 
 def main():
-    api_key = os.environ.get("ETSY_API_KEY")
-    if not api_key:
-        sys.exit("ETSY_API_KEY is not set: add it as a GitHub repo secret.")
+    api_key_value = api_key_header(os.environ)
 
     threshold, listings = load_config(CONFIG_PATH)
     session = requests.Session()
-    session.headers["x-api-key"] = api_key
+    session.headers["x-api-key"] = api_key_value
 
     quantities = []
     errors = []

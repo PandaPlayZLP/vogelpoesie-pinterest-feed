@@ -28,6 +28,7 @@ jobs:
       - name: Check stock
         env:
           ETSY_API_KEY: ${{ secrets.ETSY_API_KEY }}
+          ETSY_SHARED_SECRET: ${{ secrets.ETSY_SHARED_SECRET }}
         run: python scripts/stock_watch.py
 
       - name: Open or update "Low stock" issue

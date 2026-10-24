@@ -27,6 +27,7 @@ jobs:
       - name: Generate feed.tsv
         env:
           ETSY_API_KEY: ${{ secrets.ETSY_API_KEY }}
+          ETSY_SHARED_SECRET: ${{ secrets.ETSY_SHARED_SECRET }}
           ETSY_SHOP_ID: ${{ vars.ETSY_SHOP_ID }}
         run: python scripts/pinterest_feed.py
 

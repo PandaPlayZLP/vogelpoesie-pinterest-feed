@@ -1,11 +1,16 @@
+import contextlib
+import io
 import os
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import stock_watch
+
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "stock_watch.json")
 
 
 class StockWatchTest(unittest.TestCase):
@@ -34,13 +39,33 @@ class StockWatchTest(unittest.TestCase):
         self.assertEqual(stock_watch.find_low(items, 5), [(1, "low", 2)])
 
     def test_missing_api_key_exits_nonzero_naming_secret(self):
-        env = {k: v for k, v in os.environ.items() if k != "ETSY_API_KEY"}
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("ETSY_API_KEY", "ETSY_SHARED_SECRET")
+        }
         script = os.path.join(os.path.dirname(__file__), "..", "scripts", "stock_watch.py")
         result = subprocess.run(
             [sys.executable, script], env=env, capture_output=True, text=True
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ETSY_API_KEY", result.stderr)
+        self.assertIn("ETSY_SHARED_SECRET", result.stderr)
+
+    def test_sends_keystring_and_shared_secret_header(self):
+        session = mock.Mock()
+        session.headers = {}
+        response = mock.Mock()
+        response.json.return_value = {"state": "active", "quantity": 50}
+        session.get.return_value = response
+        env = {"ETSY_API_KEY": "keystring1", "ETSY_SHARED_SECRET": "secret1"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(
+            stock_watch.requests, "Session", return_value=session
+        ), mock.patch.object(stock_watch, "CONFIG_PATH", CONFIG_PATH), contextlib.redirect_stdout(
+            io.StringIO()
+        ):
+            stock_watch.main()
+        self.assertEqual(session.headers["x-api-key"], "keystring1:secret1")
 
 
 if __name__ == "__main__":

@@ -1,14 +1,17 @@
+import contextlib
 import csv
+import io
 import pathlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 
 import pinterest_feed  # noqa: E402
 
-# Shaped like the Etsy v3 "listings/active?includes=Images" response, with
+# Shaped like the Etsy v3 "listings/batch?includes=Images" response, with
 # invented ids/text standing in for a real shop's data purely to exercise
 # the TSV transform locally (no live Etsy call, no production feed.tsv).
 FIXTURE_LISTINGS = [
@@ -75,6 +78,89 @@ class ListingToRowTests(unittest.TestCase):
 
         self.assertEqual(header, pinterest_feed.FIELDNAMES)
         self.assertEqual(len(data_rows), len(rows))
+
+
+class UnmatchedTitleTests(unittest.TestCase):
+    UNMATCHED = {
+        **FIXTURE_LISTINGS[0],
+        "listing_id": 3333333333,
+        "title": "Testvogel Kissen Aquarell",
+    }
+
+    def test_unmatched_title_is_skipped_and_logged(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            rows = pinterest_feed.build_rows(
+                [FIXTURE_LISTINGS[0], self.UNMATCHED, FIXTURE_LISTINGS[1]]
+            )
+        self.assertEqual(
+            [row["id"] for row in rows], [1111111111, 2222222222]
+        )
+        self.assertIn("3333333333", stderr.getvalue())
+        self.assertIn("Testvogel Kissen Aquarell", stderr.getvalue())
+
+
+def _response(payload):
+    response = mock.Mock()
+    response.json.return_value = payload
+    return response
+
+
+class FetchActiveListingsTests(unittest.TestCase):
+    def test_ids_from_active_then_images_from_batch(self):
+        session = mock.Mock()
+        session.headers = {}
+        active_page = {
+            "count": 2,
+            "results": [{"listing_id": 1111111111}, {"listing_id": 2222222222}],
+        }
+        session.get.side_effect = [
+            _response(active_page),
+            _response({"count": 2, "results": FIXTURE_LISTINGS}),
+        ]
+        with mock.patch.object(pinterest_feed.requests, "Session", return_value=session):
+            listings = pinterest_feed.fetch_active_listings("64554473", "key:secret")
+
+        self.assertEqual(listings, FIXTURE_LISTINGS)
+        self.assertEqual(session.headers["x-api-key"], "key:secret")
+        active_call, batch_call = session.get.call_args_list
+        self.assertTrue(active_call.args[0].endswith("/shops/64554473/listings/active"))
+        # findAllActiveListingsByShop has no `includes` parameter.
+        self.assertNotIn("includes", active_call.kwargs["params"])
+        self.assertTrue(batch_call.args[0].endswith("/listings/batch"))
+        self.assertEqual(
+            batch_call.kwargs["params"],
+            {"listing_ids": "1111111111,2222222222", "includes": "Images"},
+        )
+
+
+    def test_paginates_active_and_chunks_batch_by_100(self):
+        session = mock.Mock()
+        session.headers = {}
+        ids = list(range(1, 151))
+        active_pages = [
+            {"count": 150, "results": [{"listing_id": i} for i in ids[:100]]},
+            {"count": 150, "results": [{"listing_id": i} for i in ids[100:]]},
+        ]
+        # Batch answers out of order and includes one listing gone inactive.
+        batch_pages = [
+            {"results": [{"listing_id": i, "state": "active"} for i in reversed(ids[:100])]},
+            {
+                "results": [{"listing_id": i, "state": "active"} for i in ids[100:149]]
+                + [{"listing_id": 150, "state": "inactive"}]
+            },
+        ]
+        session.get.side_effect = [_response(p) for p in active_pages + batch_pages]
+        with mock.patch.object(pinterest_feed.requests, "Session", return_value=session):
+            listings = pinterest_feed.fetch_active_listings("64554473", "key:secret")
+
+        calls = session.get.call_args_list
+        self.assertEqual([c.kwargs["params"].get("offset") for c in calls[:2]], [0, 100])
+        self.assertEqual(
+            [len(c.kwargs["params"]["listing_ids"].split(",")) for c in calls[2:]],
+            [100, 50],
+        )
+        self.assertEqual([l["listing_id"] for l in listings], ids[:149])
 
 
 class ResolveShopIdTests(unittest.TestCase):
