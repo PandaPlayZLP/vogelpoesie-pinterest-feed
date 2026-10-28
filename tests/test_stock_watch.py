@@ -1,8 +1,10 @@
 import contextlib
 import io
+import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -66,6 +68,64 @@ class StockWatchTest(unittest.TestCase):
         ):
             stock_watch.main()
         self.assertEqual(session.headers["x-api-key"], "keystring1:secret1")
+
+
+class GoneListingTest(unittest.TestCase):
+    """A retired listing must not hide the low-stock signal behind an error."""
+
+    def _session(self, responses):
+        session = mock.Mock()
+        session.headers = {}
+        session.get.side_effect = responses
+        return session
+
+    def _response(self, status_code, payload=None):
+        response = mock.Mock()
+        response.status_code = status_code
+        response.ok = status_code == 200
+        response.text = ""
+        response.url = "https://openapi.etsy.com/v3/application/listings/1"
+        response.json.return_value = payload
+        return response
+
+    def test_fetch_listing_returns_none_on_404(self):
+        session = self._session([self._response(404)])
+        self.assertIsNone(stock_watch.fetch_listing(session, 1))
+
+    def test_main_reports_the_rest_when_one_listing_is_gone(self):
+        config = json.dumps(
+            {
+                "threshold": 5,
+                "listings": [{"id": 1, "label": "gone"}, {"id": 2, "label": "low"}],
+            }
+        )
+        session = self._session(
+            [
+                self._response(404),
+                self._response(200, {"state": "active", "quantity": 1}),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "stock_watch.json")
+            report_path = os.path.join(tmp, "low-stock.md")
+            with open(config_path, "w", encoding="utf-8") as handle:
+                handle.write(config)
+            env = {"ETSY_API_KEY": "keystring1:secret1"}
+            with mock.patch.dict(os.environ, env), mock.patch.object(
+                stock_watch.requests, "Session", return_value=session
+            ), mock.patch.object(stock_watch, "CONFIG_PATH", config_path), mock.patch.object(
+                stock_watch, "REPORT_PATH", report_path
+            ), contextlib.redirect_stdout(
+                io.StringIO()
+            ), contextlib.redirect_stderr(
+                io.StringIO()
+            ) as err:
+                stock_watch.main()
+            with open(report_path, encoding="utf-8") as handle:
+                report = handle.read()
+        self.assertIn("etsy.com/listing/2", report)
+        self.assertIn("prune config/stock_watch.json", err.getvalue())
+        self.assertIn("1 (gone)", err.getvalue())
 
 
 if __name__ == "__main__":

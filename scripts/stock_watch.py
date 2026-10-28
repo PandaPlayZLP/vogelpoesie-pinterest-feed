@@ -26,7 +26,14 @@ def load_config(path):
 
 
 def fetch_listing(session, listing_id):
+    """The listing, or None when Etsy no longer has it (deleted or replaced).
+
+    A shop retires listings regularly, and one dead id must not turn the whole
+    daily watch red: that hides the real low-stock signal behind a 404.
+    """
     response = session.get(f"{ETSY_API_BASE}/listings/{listing_id}", timeout=30)
+    if response.status_code == 404:
+        return None
     check_response(response)
     return response.json()
 
@@ -61,16 +68,21 @@ def main():
 
     quantities = []
     errors = []
+    gone = []
     for entry in listings:
         listing_id = entry["id"]
         label = entry.get("label", str(listing_id))
         try:
-            quantity = effective_quantity(fetch_listing(session, listing_id))
+            listing = fetch_listing(session, listing_id)
         except requests.RequestException as exc:
             errors.append(f"listing {listing_id}: {exc}")
             continue
-        quantities.append((listing_id, label, quantity))
-        print(f"{listing_id}\t{quantity}\t{label}")
+        if listing is None:
+            gone.append(f"{listing_id} ({label})")
+            print(f"{listing_id}\tGONE\t{label}", file=sys.stderr)
+            continue
+        quantities.append((listing_id, label, effective_quantity(listing)))
+        print(f"{listing_id}\t{quantities[-1][2]}\t{label}")
 
     low = find_low(quantities, threshold)
     if low:
@@ -78,6 +90,11 @@ def main():
             handle.write(render_report(low, threshold))
         print(f"{len(low)} listing(s) below {threshold}; wrote {REPORT_PATH}")
 
+    if gone:
+        print(
+            "no longer on Etsy, prune config/stock_watch.json: " + "; ".join(gone),
+            file=sys.stderr,
+        )
     if errors:
         sys.exit("could not read: " + "; ".join(errors))
 
