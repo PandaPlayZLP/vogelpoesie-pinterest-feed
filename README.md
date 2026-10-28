@@ -2,7 +2,13 @@
 
 Auto-generated TSV product feed for Pinterest's data source ingestion. Regenerated daily from the live Etsy API. Pinterest fetches `feed.tsv` and creates Product Pins for all listings automatically.
 
-**Feed URL:** `https://pandaplayzlp.github.io/vogelpoesie-pinterest-feed/feed.tsv`
+**Feed URL:** `https://cdn.jsdelivr.net/gh/PandaPlayZLP/vogelpoesie-pinterest-feed@main/feed.tsv`
+
+Not the `github.io` URL: the apex `tinod.me` redirects every path to the portfolio site, and a
+GitHub Pages project URL inherits that redirect from the user site's custom domain, so
+`pandaplayzlp.github.io/vogelpoesie-pinterest-feed/feed.tsv` answers 404. The CDN path serves
+the committed file with `text/tab-separated-values`, and the build purges its cache after each
+commit and then fetches the public URL to prove it works.
 
 Submit this URL to Pinterest Business → Catalogs → Data Sources (TSV format, daily refresh).
 

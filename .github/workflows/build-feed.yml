@@ -42,3 +42,19 @@ jobs:
           git add feed.tsv
           git commit -m "chore: regenerate feed.tsv"
           git push
+
+      - name: Purge the CDN cache
+        run: |
+          curl -sS "https://purge.jsdelivr.net/gh/PandaPlayZLP/vogelpoesie-pinterest-feed@main/feed.tsv" || true
+
+      # The same check that would have caught the months-long 404: the apex
+      # tinod.me redirects everything to the portfolio, and every github.io
+      # project URL follows that redirect, so the file being committed says
+      # nothing about whether Pinterest can fetch it.
+      - name: Verify the public feed URL serves the file
+        run: |
+          url="https://cdn.jsdelivr.net/gh/PandaPlayZLP/vogelpoesie-pinterest-feed@main/feed.tsv"
+          curl -sS --fail --retry 5 --retry-delay 5 --retry-all-errors "$url" -o /tmp/served.tsv
+          head -1 /tmp/served.tsv | grep -q $'^id\ttitle' || {
+            echo "::error::$url does not start with the feed header"; exit 1; }
+          echo "public feed serves $(($(wc -l < /tmp/served.tsv) - 1)) rows"
