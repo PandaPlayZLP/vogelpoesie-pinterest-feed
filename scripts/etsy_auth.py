@@ -32,3 +32,17 @@ def api_key_header(environ):
             f"on {YOUR_APPS_URL}."
         )
     return f"{keystring}:{shared_secret}"
+
+
+def check_response(response):
+    """Return the response, or exit with Etsy's own explanation of a failure.
+
+    `raise_for_status` throws away the body, and Etsy puts the actual cause
+    there (e.g. 403 "API key not found or not active, or incorrect shared
+    secret for API key."), so a bare status code leaves nobody able to tell a
+    pending app approval from a mistyped secret.
+    """
+    if response.ok:
+        return response
+    body = " ".join(response.text.split())[:400] or "<empty body>"
+    sys.exit(f"Etsy {response.status_code} on {response.url}: {body}")

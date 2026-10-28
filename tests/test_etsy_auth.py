@@ -30,5 +30,36 @@ class ApiKeyHeaderTests(unittest.TestCase):
         self.assertIn("ETSY_API_KEY and ETSY_SHARED_SECRET", str(caught.exception.code))
 
 
+class _Response:
+    def __init__(self, status_code, text):
+        self.status_code = status_code
+        self.ok = 200 <= status_code < 400
+        self.text = text
+        self.url = "https://openapi.etsy.com/v3/application/shops/1/listings/active"
+
+
+class CheckResponseTests(unittest.TestCase):
+    def test_ok_response_passes_through(self):
+        response = _Response(200, '{"count": 0}')
+        self.assertIs(etsy_auth.check_response(response), response)
+
+    def test_403_exits_with_etsys_own_reason(self):
+        response = _Response(
+            403, '{"error":"API key not found or not active, or incorrect shared secret for API key."}'
+        )
+        with self.assertRaises(SystemExit) as caught:
+            etsy_auth.check_response(response)
+        message = str(caught.exception.code)
+        self.assertIn("403", message)
+        self.assertIn("not active", message)
+        self.assertIn("/shops/1/listings/active", message)
+
+    def test_empty_body_still_names_the_status(self):
+        with self.assertRaises(SystemExit) as caught:
+            etsy_auth.check_response(_Response(500, "   "))
+        self.assertIn("500", str(caught.exception.code))
+        self.assertIn("<empty body>", str(caught.exception.code))
+
+
 if __name__ == "__main__":
     unittest.main()
