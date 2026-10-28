@@ -100,6 +100,40 @@ class UnmatchedTitleTests(unittest.TestCase):
         self.assertIn("Testvogel Kissen Aquarell", stderr.getvalue())
 
 
+class NoImageTests(unittest.TestCase):
+    EMPTY_IMAGES = {**FIXTURE_LISTINGS[0], "listing_id": 4444444444, "images": []}
+    NO_IMAGES_KEY = {
+        k: v for k, v in FIXTURE_LISTINGS[0].items() if k != "images"
+    } | {"listing_id": 5555555555}
+
+    def _build(self, listings):
+        stderr = io.StringIO()
+        skipped = {}
+        with contextlib.redirect_stderr(stderr):
+            rows = pinterest_feed.build_rows(listings, skipped)
+        return rows, stderr.getvalue(), skipped
+
+    def test_empty_and_missing_images_are_skipped_with_warning(self):
+        for listing in (self.EMPTY_IMAGES, self.NO_IMAGES_KEY):
+            rows, err, skipped = self._build([listing])
+            self.assertEqual(rows, [])
+            self.assertIn(
+                f"::warning::skipped listing {listing['listing_id']}: no image", err
+            )
+            self.assertEqual(skipped, {"no rule": 0, "no image": 1})
+
+    def test_mixed_batch_writes_only_rows_with_image(self):
+        unmatched = {**FIXTURE_LISTINGS[0], "listing_id": 3, "title": "Testvogel Kissen"}
+        rows, err, skipped = self._build(
+            [FIXTURE_LISTINGS[0], self.EMPTY_IMAGES, unmatched,
+             self.NO_IMAGES_KEY, FIXTURE_LISTINGS[1]]
+        )
+        self.assertEqual([r["id"] for r in rows], [1111111111, 2222222222])
+        self.assertTrue(all(r["image_link"] for r in rows))
+        self.assertEqual(skipped, {"no rule": 1, "no image": 2})
+        self.assertIn("no product rule matches", err)
+
+
 def _response(payload):
     response = mock.Mock()
     response.json.return_value = payload

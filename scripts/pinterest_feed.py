@@ -117,7 +117,7 @@ def fetch_active_listings(shop_id, api_key_value):
 
 
 def listing_to_row(listing):
-    """One feed row, or None when no product rule matches the title."""
+    """One feed row, or None when the title matches no rule or has no image."""
     title = clean_text(listing["title"])
     bird = slugify(title.split(" ")[0])
     match = classify(title)
@@ -126,7 +126,9 @@ def listing_to_row(listing):
     product_type, gpc, suffix = match
 
     images = sorted(listing.get("images", []), key=lambda img: img.get("rank", 0))
-    image_urls = [img["url_fullxfull"] for img in images]
+    image_urls = [img["url_fullxfull"] for img in images if img.get("url_fullxfull")]
+    if not image_urls:
+        return None
 
     price = listing["price"]
     amount = price["amount"] / price["divisor"]
@@ -139,7 +141,7 @@ def listing_to_row(listing):
             f"{listing['url']}?utm_source=pinterest&utm_medium=catalog"
             f"&utm_campaign={bird}-{suffix}"
         ),
-        "image_link": image_urls[0] if image_urls else "",
+        "image_link": image_urls[0],
         "additional_image_link": ",".join(image_urls[1:]),
         "price": f"{amount:.2f} {price['currency_code']}",
         "availability": "in stock" if listing["quantity"] > 0 else "out of stock",
@@ -151,21 +153,29 @@ def listing_to_row(listing):
     }
 
 
-def build_rows(listings):
-    """Feed rows for every classifiable listing; unmatched titles are logged
-    to stderr and skipped so one new product type cannot kill the feed."""
+def build_rows(listings, skipped=None):
+    """Feed rows for every usable listing. Listings with an unmatched title or
+    no image are logged to stderr and skipped, so one new product type or a
+    photo still uploading cannot kill the feed (Pinterest rejects rows without
+    image_link). `skipped`, if given, is a dict that gets "no rule" and
+    "no image" counts."""
+    skipped = skipped if skipped is not None else {}
+    skipped.update({"no rule": 0, "no image": 0})
     rows = []
     for listing in listings:
         row = listing_to_row(listing)
-        if row is None:
-            # ::warning:: surfaces the skip as an annotation on the Actions run.
-            print(
-                f"::warning::skipped listing {listing['listing_id']}: no product rule "
-                f"matches title {clean_text(listing['title'])!r}",
-                file=sys.stderr,
-            )
+        if row is not None:
+            rows.append(row)
             continue
-        rows.append(row)
+        # ::warning:: surfaces the skip as an annotation on the Actions run.
+        title = clean_text(listing["title"])
+        if classify(title) is None:
+            skipped["no rule"] += 1
+            reason = f"no product rule matches title {title!r}"
+        else:
+            skipped["no image"] += 1
+            reason = "no image"
+        print(f"::warning::skipped listing {listing['listing_id']}: {reason}", file=sys.stderr)
     return rows
 
 
@@ -194,15 +204,20 @@ def main():
     listings = fetch_active_listings(shop_id, api_key_value)
     if not listings:
         sys.exit("Etsy returned zero active listings — refusing to write an empty feed.")
-    rows = build_rows(listings)
+    skipped = {}
+    rows = build_rows(listings, skipped)
     if not rows:
         sys.exit(
-            f"none of {len(listings)} active listings matches a product rule — "
+            f"none of {len(listings)} active listings is feedable "
+            f"(skipped: {skipped['no rule']} no rule, {skipped['no image']} no image) — "
             "refusing to write an empty feed."
         )
 
     write_tsv(rows, "feed.tsv")
-    print(f"wrote feed.tsv with {len(rows)} rows")
+    print(
+        f"wrote feed.tsv with {len(rows)} rows "
+        f"(skipped: {skipped['no rule']} no rule, {skipped['no image']} no image)"
+    )
 
 
 if __name__ == "__main__":
