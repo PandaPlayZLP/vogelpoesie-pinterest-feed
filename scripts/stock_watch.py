@@ -11,7 +11,7 @@ import sys
 
 import requests
 
-from etsy_auth import api_key_header
+from etsy_auth import api_key_header, check_response
 
 ETSY_API_BASE = "https://openapi.etsy.com/v3/application"
 CONFIG_PATH = "config/stock_watch.json"
@@ -27,7 +27,7 @@ def load_config(path):
 
 def fetch_listing(session, listing_id):
     response = session.get(f"{ETSY_API_BASE}/listings/{listing_id}", timeout=30)
-    response.raise_for_status()
+    check_response(response)
     return response.json()
 
 

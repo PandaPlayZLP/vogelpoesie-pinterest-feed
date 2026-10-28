@@ -8,7 +8,7 @@ import sys
 
 import requests
 
-from etsy_auth import api_key_header
+from etsy_auth import api_key_header, check_response
 
 ETSY_API_BASE = "https://openapi.etsy.com/v3/application"
 
@@ -83,7 +83,7 @@ def fetch_active_listings(shop_id, api_key_value):
             params={"limit": PAGE_SIZE, "offset": offset},
             timeout=30,
         )
-        response.raise_for_status()
+        check_response(response)
         payload = response.json()
         results = payload.get("results", [])
         listing_ids.extend(listing["listing_id"] for listing in results)
