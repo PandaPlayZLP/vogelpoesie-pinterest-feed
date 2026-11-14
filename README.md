@@ -51,7 +51,7 @@ One-time setup:
 3. From this repo, run the login:
 
    ```bash
-   python3 -m pip install --user -r scripts/requirements.txt  # once, if requests is missing
+   python3 -c 'import requests' || sudo apt install python3-requests  # once
    set -a; . ~/.config/vogelpoesie/etsy.env; set +a
    python3 scripts/etsy_oauth_login.py
    ```
