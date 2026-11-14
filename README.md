@@ -32,12 +32,20 @@ One-time setup:
    callback URL exactly (https, no trailing slash): `https://localhost/etsy-callback`. Save.
    If Etsy refuses it, register any https URL you control and pass it to the login script as
    `--redirect-uri <that URL>` (or set `ETSY_REDIRECT_URI`); it must match character for character.
-2. Put the app credentials in a file only you can read (keystring first, then the shared secret):
+2. Create a credentials file only you can read, then open it in an editor (so the secret never
+   lands in shell history):
 
    ```bash
    install -d -m 700 ~/.config/vogelpoesie
    install -m 600 /dev/null ~/.config/vogelpoesie/etsy.env
-   printf 'ETSY_API_KEY=%s\nETSY_SHARED_SECRET=%s\n' '<keystring>' '<shared secret>' > ~/.config/vogelpoesie/etsy.env
+   nano ~/.config/vogelpoesie/etsy.env
+   ```
+
+   and enter two lines, keystring first, then the shared secret, both from the app page:
+
+   ```text
+   ETSY_API_KEY=<keystring>
+   ETSY_SHARED_SECRET=<shared secret>
    ```
 
 3. From this repo, run the login:
@@ -58,6 +66,8 @@ One-time setup:
    ```cron
    15 6 * * * cd ~/code/vogelpoesie-pinterest-feed && set -a && . ~/.config/vogelpoesie/etsy.env && set +a && python3 scripts/etsy_sales.py >> ~/.config/vogelpoesie/etsy_sales.log 2>&1
    ```
+
+`Sale Date` is written as `MM/DD/YY` (the Etsy Order Items export format) in UTC.
 
 Log in again (steps 3–4) only if the job stops with Etsy's `invalid_grant` error. That happens when
 it has not run for 90 days, so the refresh token expired, or when access was revoked on Etsy.

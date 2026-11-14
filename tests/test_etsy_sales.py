@@ -60,9 +60,18 @@ def _page(count, *transactions):
     return _Response(200, {"count": count, "results": list(transactions)})
 
 
-def _sale(listing_id, created):
+_next_transaction_id = iter(range(1, 10**6))
+
+
+def _sale(listing_id, created, transaction_id=None):
     # Real transactions carry more (title, buyer_user_id, variations); none of it may leak.
-    return {"listing_id": listing_id, "created_timestamp": created, "buyer_user_id": 555, "title": "x"}
+    return {
+        "transaction_id": transaction_id or next(_next_transaction_id),
+        "listing_id": listing_id,
+        "created_timestamp": created,
+        "buyer_user_id": 555,
+        "title": "x",
+    }
 
 
 class SalesTestCase(unittest.TestCase):
@@ -177,10 +186,30 @@ class FetchSalesTests(SalesTestCase):
             self.assertNotIn("555", handle.read())
         self.assertEqual(stat.S_IMODE(os.stat(self.out_path).st_mode), 0o600)
 
-    def test_short_page_stops_even_if_count_is_larger(self):
+    def test_empty_page_stops_even_if_count_is_larger(self):
         session = _Session(_page(500, _sale(1, NOW)), _page(500))
         self.assertEqual(etsy_sales.fetch_sales(session, "1", NOW - DAY), [(1, NOW)])
         self.assertEqual(len(session.calls), 2)
+
+    def test_transaction_repeated_across_pages_counts_once(self):
+        # A new sale between the two calls pushes the last row of page 1 onto page 2.
+        first = [_sale(10 + i, NOW - i, transaction_id=100 + i) for i in range(100)]
+        second = [_sale(109, NOW - 99, transaction_id=199), _sale(7, NOW - 200, transaction_id=300)]
+        session = _Session(_page(102, *first), _page(102, *second))
+        sales = etsy_sales.fetch_sales(session, "1", NOW - DAY)
+        self.assertEqual(len(sales), 101)
+        self.assertIn((7, NOW - 200), sales)
+
+    def test_rows_without_listing_or_timestamp_are_skipped_and_create_timestamp_used(self):
+        session = _Session(
+            _page(
+                3,
+                {"transaction_id": 1, "listing_id": None, "created_timestamp": NOW},
+                {"transaction_id": 2, "listing_id": 5},
+                {"transaction_id": 3, "listing_id": 6, "create_timestamp": NOW - 5},
+            )
+        )
+        self.assertEqual(etsy_sales.fetch_sales(session, "1", NOW - DAY), [(6, NOW - 5)])
 
     def test_order_call_error_exits_with_etsys_body(self):
         etsy_oauth.save_tokens(self.tokens_path, _tokens(NOW + 3000))
@@ -215,6 +244,11 @@ class LoginTests(SalesTestCase):
                 "mine",
             )
         self.assertIn("User declined", str(caught.exception.code))
+
+    def test_bare_code_is_accepted_and_text_without_code_is_not(self):
+        self.assertEqual(etsy_oauth_login.parse_redirect("  abc-DEF_123  ", "mine"), "abc-DEF_123")
+        with self.assertRaises(SystemExit):
+            etsy_oauth_login.parse_redirect("https://localhost/etsy-callback", "mine")
 
     def test_login_exchanges_code_with_verifier_and_saves_tokens(self):
         printed = []

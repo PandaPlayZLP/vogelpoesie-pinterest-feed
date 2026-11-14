@@ -30,6 +30,7 @@ from etsy_oauth import (
     load_tokens,
     save_tokens,
     token_record,
+    tokens_lock,
     write_private,
 )
 
@@ -42,37 +43,44 @@ PAGE_SIZE = 100
 REFRESH_MARGIN = 300
 FIELDNAMES = ["Sale Date", "Listing ID"]
 # The Etsy Order Items export writes Sale Date as MM/DD/YY; match it so the
-# ranking reads this file and a manual export the same way.
+# ranking reads this file and a manual export the same way. Dates are UTC, so
+# a sale near midnight can land one day off the export's shop-local date.
 SALE_DATE_FORMAT = "%m/%d/%y"
 
 
 def access_token(session, keystring, tokens_path, now):
     """A usable access token, refreshing (and storing the rotated pair) if due."""
-    tokens = load_tokens(tokens_path)
-    if tokens.get("expires_at", 0) - REFRESH_MARGIN > now:
-        return tokens["access_token"]
+    load_tokens(tokens_path)  # exits naming the login script when absent
+    with tokens_lock(tokens_path):
+        tokens = load_tokens(tokens_path)
+        if tokens.get("expires_at", 0) - REFRESH_MARGIN > now:
+            return tokens["access_token"]
 
-    # Form body, never the query string: check_response prints the URL.
-    response = session.post(
-        TOKEN_URL,
-        data={
-            "grant_type": "refresh_token",
-            "client_id": keystring,
-            "refresh_token": tokens["refresh_token"],
-        },
-        timeout=30,
-    )
-    check_response(response)
-    fresh = token_record(response.json(), now, tokens["refresh_token"])
-    # Saved before any order call: the old refresh token may already be dead,
-    # so losing the new one to a later failure would force a fresh login.
-    save_tokens(tokens_path, fresh)
-    return fresh["access_token"]
+        # Form body, never the query string: check_response prints the URL.
+        response = session.post(
+            TOKEN_URL,
+            data={
+                "grant_type": "refresh_token",
+                "client_id": keystring,
+                "refresh_token": tokens["refresh_token"],
+            },
+            timeout=30,
+        )
+        check_response(response)
+        fresh = token_record(response.json(), now, tokens["refresh_token"])
+        # Saved before any order call: the old refresh token may already be
+        # dead, so losing the new one to a later failure forces a fresh login.
+        save_tokens(tokens_path, fresh)
+        return fresh["access_token"]
 
 
 def fetch_sales(session, shop_id, since):
-    """[(listing_id, created_timestamp)] for transactions created at or after `since`."""
-    sales = []
+    """[(listing_id, created_timestamp)] for transactions created at or after `since`.
+
+    Keyed by transaction_id: a sale arriving mid-run shifts the offsets, so a
+    transaction can show up on two pages.
+    """
+    sales = {}
     offset = 0
     while True:
         response = session.get(
@@ -89,12 +97,13 @@ def fetch_sales(session, shop_id, since):
             )
             listing_id = transaction.get("listing_id")
             if listing_id and created and created >= since:
-                sales.append((listing_id, created))
+                key = transaction.get("transaction_id") or (offset, listing_id, created)
+                sales[key] = (listing_id, created)
 
         offset += len(results)
         if not results or offset >= payload.get("count", 0):
             break
-    return sales
+    return list(sales.values())
 
 
 def render_csv(sales):

@@ -7,6 +7,8 @@ which Tino grants once through etsy_oauth_login.py. Etsy access tokens live
 the stored file is rewritten after each refresh.
 """
 
+import contextlib
+import fcntl
 import json
 import os
 import sys
@@ -61,16 +63,41 @@ def write_private(path, text):
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temp_path, path)
     except BaseException:
         if os.path.exists(temp_path):
             os.unlink(temp_path)
         raise
+    # Etsy has already retired the old refresh token: make the rename durable.
+    directory_fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
     return path
 
 
 def save_tokens(path, tokens):
     return write_private(path, json.dumps(tokens, indent=2) + "\n")
+
+
+@contextlib.contextmanager
+def tokens_lock(path):
+    """Hold an exclusive lock beside the token file.
+
+    Two overlapping runs (cron plus a manual one) would both spend the same
+    refresh token; the second gets invalid_grant and may overwrite the good
+    pair. Callers re-read the tokens once the lock is held.
+    """
+    lock_path = os.path.expanduser(path) + ".lock"
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
 
 
 def load_tokens(path):
