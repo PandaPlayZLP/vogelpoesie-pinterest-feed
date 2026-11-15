@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 low-stock.md
+data/*.tmp
+*[Oo]rder*[Ii]tems*.csv
+*order*items*.csv

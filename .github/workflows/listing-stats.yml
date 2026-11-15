@@ -1,0 +1,80 @@
+name: Listing stats
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: listing-stats
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests
+
+      # The first run against the live API is also the field check: the
+      # script exits non-zero naming the listing and field if Etsy's response
+      # lacks views or num_favorers.
+      - name: Record views and favorites
+        env:
+          ETSY_API_KEY: ${{ secrets.ETSY_API_KEY }}
+          ETSY_SHARED_SECRET: ${{ secrets.ETSY_SHARED_SECRET }}
+          ETSY_SHOP_ID: ${{ vars.ETSY_SHOP_ID }}
+        run: python scripts/listing_stats.py
+
+      # Committed before the report runs, so a report failure cannot lose the
+      # day's snapshot and restart the 7-day clock. `git diff` ignores
+      # untracked files, so check the staged diff instead.
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "data unchanged"
+            exit 0
+          fi
+          git commit -m "chore: record listing stats"
+          # build-feed also pushes to main; retry a lost race.
+          for attempt in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          exit 1
+
+      # No --sales: the Etsy order export holds buyer data and never goes in
+      # the repo. Run listing_report.py --sales PATH locally for the 60-day
+      # filter.
+      - name: Write most-viewed report
+        run: python scripts/listing_report.py
+
+      # reports/ does not exist until 7 consecutive days have been recorded.
+      - name: Commit report
+        run: |
+          [ -d reports ] && git add reports
+          if git diff --cached --quiet; then
+            echo "report unchanged"
+            exit 0
+          fi
+          git commit -m "chore: update most-viewed report"
+          # build-feed also pushes to main; retry a lost race.
+          for attempt in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          exit 1
