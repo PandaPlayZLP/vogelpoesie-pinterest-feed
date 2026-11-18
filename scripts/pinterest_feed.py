@@ -215,7 +215,7 @@ def load_stats(path):
         return {}, None
     try:
         return listing_report.read_stats(path), None
-    except (OSError, ValueError, KeyError) as error:
+    except (OSError, ValueError, KeyError, TypeError, csv.Error) as error:
         return {}, f"stats unreadable ({type(error).__name__}: {error})"
 
 
@@ -244,7 +244,9 @@ def order_listings(rows, by_date, today, sales_path=None):
     else:
         last_sales = None
         if sales_path:
-            last_sales = listing_report.load_last_sales(sales_path, window[-1])
+            # Up to today, not the snapshot date: on a stale snapshot a sale
+            # made since then must still count.
+            last_sales = listing_report.load_last_sales(sales_path, max(window[-1], today))
             notes.append("sales checked")
         # Stats keys are strings, feed ids are ints.
         ranked, _gaps = listing_report.rank_listings(by_date, window, last_sales, limit=None)

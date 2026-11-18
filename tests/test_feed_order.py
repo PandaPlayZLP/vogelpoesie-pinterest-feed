@@ -75,6 +75,16 @@ class OrderListingsTest(unittest.TestCase):
         self.assertIn("sales checked", info["notes"])
         self.assertNotIn("sales not checked", info["notes"])
 
+    def test_sale_after_a_stale_snapshot_still_counts(self):
+        newest = TODAY - datetime.timedelta(days=2)
+        rows = [feed_row(i) for i in (1, 2)]
+        with tempfile.TemporaryDirectory() as tmp:
+            sales = os.path.join(tmp, "sales.csv")
+            with open(sales, "w") as handle:
+                handle.write(SALES_HEADER + "11/17/26,2,x\n")
+            ordered, _ = pinterest_feed.order_listings(rows, stats(7, VIEWS, newest), TODAY, sales)
+        self.assertEqual(ids(ordered), [1, 2])
+
     def test_no_row_is_dropped_or_duplicated(self):
         rows = [feed_row(i) for i in (7, 1, 8, 2, 3, 4)]
         ordered, _ = pinterest_feed.order_listings(rows, stats(7, VIEWS), TODAY)
@@ -223,6 +233,14 @@ class MainTest(unittest.TestCase):
             feed = self.read_csv(os.path.join(tmp, "feed.tsv"), "\t")
             log = self.read_csv(os.path.join(tmp, "data", "feed_runs.csv"))
         self.assertEqual([row["id"] for row in feed], ["1", "2"])
+        self.assertIn("stats unreadable", log[0]["notes"])
+
+    def test_truncated_stats_row_keeps_the_current_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "listing_stats.csv"), "w") as handle:
+                handle.write("date,listing_id,title,views,num_favorers,state\n2026-11-18,1\n")
+            self.run_main(tmp, [etsy_listing(i) for i in (1, 2)])
+            log = self.read_csv(os.path.join(tmp, "data", "feed_runs.csv"))
         self.assertIn("stats unreadable", log[0]["notes"])
 
     def test_failed_build_logs_nothing(self):
