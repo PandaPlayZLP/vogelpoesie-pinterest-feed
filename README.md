@@ -15,3 +15,5 @@ Submit this URL to Pinterest Business → Catalogs → Data Sources (TSV format,
 Pipeline: Etsy API → [`scripts/pinterest_feed.py`](scripts/pinterest_feed.py) → this repo → GitHub Pages → Pinterest.
 
 The [`build-feed` workflow](.github/workflows/build-feed.yml) runs daily, regenerates `feed.tsv` from the shop's active Etsy listings, and commits it if it changed. It and the [`stock-watch` workflow](.github/workflows/stock-watch.yml) need two repo secrets, `ETSY_API_KEY` (the app keystring) and `ETSY_SHARED_SECRET`: Etsy Open API v3 rejects any request whose `x-api-key` header is not `keystring:shared_secret`. Both values are on https://www.etsy.com/developers/your-apps.
+
+The [`listing-stats` workflow](.github/workflows/listing-stats.yml) runs daily at 07:00 UTC and records every active listing's lifetime views and favorites in `data/listing_stats.csv`; once 7 consecutive days exist it also writes `reports/most-viewed-unsold.md` (top 10 by views gained; run `scripts/listing_report.py --sales <Etsy Order Items CSV> --out <other path>` locally (the workflow overwrites the default path) to drop listings that sold in the last 60 days, and never commit that export).
