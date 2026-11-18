@@ -102,8 +102,9 @@ def load_last_sales(path, report_date):
     return last_sale
 
 
-def rank_listings(by_date, window, last_sales=None):
+def rank_listings(by_date, window, last_sales=None, limit=TOP_N):
     """(ranked rows, listings missing a day). Active = present on the newest day.
+    `limit` caps the ranked rows (the report's top 10); None keeps every one.
 
     Gain is newest minus the listing's earliest snapshot in the window, which is
     the window start unless the listing is missing that day. With last_sales,
@@ -136,7 +137,7 @@ def rank_listings(by_date, window, last_sales=None):
             }
         )
     ranked.sort(key=lambda r: (-r["views_gained"], -r["favorites_gained"], r["listing_id"]))
-    return ranked[:TOP_N], gaps
+    return (ranked if limit is None else ranked[:limit]), gaps
 
 
 def cell(text):

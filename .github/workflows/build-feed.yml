@@ -2,11 +2,16 @@ name: Build Pinterest feed
 
 on:
   schedule:
-    - cron: "0 5 * * *"
+    - cron: "0 8 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
+
+# Its own group: sharing listing-stats' would let this run, which waits for
+# the stats run, block it or cancel it behind a third queued run.
+concurrency:
+  group: build-feed
 
 jobs:
   build:
@@ -24,6 +29,24 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests
 
+      # The stats run (07:00 UTC) commits data/listing_stats.csv. The checkout
+      # above is a snapshot, so each poll pulls. Late or failed stats must
+      # not stop the feed: warn and build from the earlier snapshot.
+      - name: Wait for today's listing stats
+        run: |
+          today=$(date -u +%F)
+          for minute in $(seq 0 15); do
+            git pull --ff-only --quiet || echo "git pull failed; will retry"
+            if [ -f data/listing_stats.csv ] && grep -q "^${today}," data/listing_stats.csv; then
+              echo "found stats rows for ${today}"
+              exit 0
+            fi
+            if [ "$minute" -lt 15 ]; then
+              sleep 60
+            fi
+          done
+          echo "::warning::no listing stats rows for ${today} after 15 minutes; building from the earlier snapshot"
+
       - name: Generate feed.tsv
         env:
           ETSY_API_KEY: ${{ secrets.ETSY_API_KEY }}
@@ -31,17 +54,30 @@ jobs:
           ETSY_SHOP_ID: ${{ vars.ETSY_SHOP_ID }}
         run: python scripts/pinterest_feed.py
 
-      - name: Commit feed.tsv if changed
+      # data/feed_runs.csv gains a row every run, so this commits daily even
+      # when feed.tsv is unchanged. Check the staged diff: `git diff` ignores
+      # untracked files, which the first run's log is.
+      - name: Commit feed.tsv and the run log
         run: |
-          if git diff --quiet -- feed.tsv; then
-            echo "feed.tsv unchanged"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add feed.tsv
-          git commit -m "chore: regenerate feed.tsv"
-          git push
+          git add feed.tsv data/feed_runs.csv
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          if git diff --cached --quiet -- feed.tsv; then
+            git commit -m "chore: log feed run"
+          else
+            git commit -m "chore: regenerate feed.tsv"
+          fi
+          # listing-stats also pushes to main; retry a lost race.
+          for attempt in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            git rebase --abort 2>/dev/null || true
+            sleep 5
+          done
+          exit 1
 
       - name: Purge the CDN cache
         run: |
