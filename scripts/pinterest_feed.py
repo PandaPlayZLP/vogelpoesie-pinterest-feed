@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Build feed.tsv (Pinterest catalog feed) from the live Etsy shop listings."""
 
+import argparse
 import csv
+import datetime
 import os
 import re
 import sys
 
 import requests
 
+import listing_report
 from etsy_auth import api_key_header, check_response
 
 ETSY_API_BASE = "https://openapi.etsy.com/v3/application"
@@ -61,6 +64,18 @@ def classify(title):
             return product_type, gpc, suffix
     return None
 
+
+RUN_LOG_PATH = "data/feed_runs.csv"
+RUN_LOG_FIELDS = [
+    "run_date",
+    "snapshot_date",
+    "days_of_data",
+    "ordering_mode",
+    "notes",
+    "top5_ids",
+]
+MODE_VIEWS = "views-7day"
+MODE_CURRENT = "current"
 
 # Etsy caps both the active-listings page size and the batch lookup at 100.
 PAGE_SIZE = 100
@@ -188,6 +203,91 @@ def write_tsv(rows, path):
         writer.writerows(rows)
 
 
+def utc_today():
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def load_stats(path):
+    """({date: {listing_id: row}}, problem). An unreadable history must not
+    take the feed down: the feed keeps its current order and the problem goes
+    to the run log."""
+    if not os.path.exists(path):
+        return {}, None
+    try:
+        return listing_report.read_stats(path), None
+    except (OSError, ValueError, KeyError, TypeError, csv.Error) as error:
+        return {}, f"stats unreadable ({type(error).__name__}: {error})"
+
+
+def order_listings(rows, by_date, today, sales_path=None):
+    """(ordered rows, info) for the feed's `rows`.
+
+    With 7 consecutive days of stats, listings that did not sell in the last
+    60 days come first, ranked by listing_report.rank_listings (7-day view
+    gain). Every other row (sold, or missing from the newest snapshot)
+    follows in its current order. Rows are only moved, never dropped. Under 7
+    consecutive days the current order is kept.
+
+    `info` has snapshot_date (newest snapshot, "" if none), days (consecutive
+    days ending at it), mode and notes.
+    """
+    notes = []
+    window, days, snapshot = None, 0, None
+    if by_date:
+        snapshot = max(by_date)
+        window, days = listing_report.consecutive_window(by_date)
+        if snapshot != today:
+            notes.append("stale snapshot")
+    if window is None:
+        notes.append(f"{days} of {listing_report.WINDOW_DAYS} days")
+        ordered, mode = list(rows), MODE_CURRENT
+    else:
+        last_sales = None
+        if sales_path:
+            # Up to today, not the snapshot date: on a stale snapshot a sale
+            # made since then must still count.
+            last_sales = listing_report.load_last_sales(sales_path, max(window[-1], today))
+            notes.append("sales checked")
+        # Stats keys are strings, feed ids are ints.
+        ranked, _gaps = listing_report.rank_listings(by_date, window, last_sales, limit=None)
+        position = {row["listing_id"]: index for index, row in enumerate(ranked)}
+        unsold = [row for row in rows if str(row["id"]) in position]
+        unsold.sort(key=lambda row: position[str(row["id"])])
+        rest = [row for row in rows if str(row["id"]) not in position]
+        ordered, mode = unsold + rest, MODE_VIEWS
+    if not sales_path:
+        notes.append("sales not checked")
+    info = {
+        "snapshot_date": snapshot.isoformat() if snapshot else "",
+        "days": days,
+        "mode": mode,
+        "notes": notes,
+    }
+    return ordered, info
+
+
+def append_run_log(path, run_date, info, rows):
+    """Append one row for this run; the header is written with the first one."""
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    is_new = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=RUN_LOG_FIELDS, lineterminator="\n")
+        if is_new:
+            writer.writeheader()
+        writer.writerow(
+            {
+                "run_date": run_date.isoformat(),
+                "snapshot_date": info["snapshot_date"],
+                "days_of_data": info["days"],
+                "ordering_mode": info["mode"],
+                "notes": "; ".join(info["notes"]),
+                "top5_ids": ";".join(str(row["id"]) for row in rows[:5]),
+            }
+        )
+
+
 def resolve_shop_id(environ):
     """ETSY_SHOP_ID, or the default when it is unset or empty.
 
@@ -197,9 +297,22 @@ def resolve_shop_id(environ):
     return environ.get("ETSY_SHOP_ID", "").strip() or DEFAULT_SHOP_ID
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--sales",
+        metavar="PATH",
+        help="Etsy Order Items CSV export (listing_report format); listings "
+        "sold in the last 60 days go after the unsold ones",
+    )
+    parser.add_argument("--stats", default=listing_report.STATS_PATH, help=argparse.SUPPRESS)
+    parser.add_argument("--runs-log", default=RUN_LOG_PATH, help=argparse.SUPPRESS)
+    parser.add_argument("--out", default="feed.tsv", help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+
     api_key_value = api_key_header(os.environ)
     shop_id = resolve_shop_id(os.environ)
+    today = utc_today()
 
     listings = fetch_active_listings(shop_id, api_key_value)
     if not listings:
@@ -213,11 +326,20 @@ def main():
             "refusing to write an empty feed."
         )
 
-    write_tsv(rows, "feed.tsv")
+    by_date, stats_problem = load_stats(args.stats)
+    rows, info = order_listings(rows, by_date, today, args.sales)
+    if stats_problem:
+        info["notes"].insert(0, stats_problem)
+        print(f"::warning::{stats_problem}", file=sys.stderr)
+
+    write_tsv(rows, args.out)
+    # Only a finished build is logged.
+    append_run_log(args.runs_log, today, info, rows)
     print(
-        f"wrote feed.tsv with {len(rows)} rows "
+        f"wrote {args.out} with {len(rows)} rows "
         f"(skipped: {skipped['no rule']} no rule, {skipped['no image']} no image)"
     )
+    print(f"ordering: {info['mode']}; {'; '.join(info['notes'])}")
 
 
 if __name__ == "__main__":
