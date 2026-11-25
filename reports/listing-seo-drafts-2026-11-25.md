@@ -46,10 +46,10 @@ Shop-wide: 68 new views in the six days between the first and last snapshot (abo
 
 ## Problems found in the live listings (fix regardless of SEO)
 
-- **Eisvogel Hoodie 4456776688:** description opens with `100% Bio-Baumwolle`, specs say 85% Bio-Baumwolle / 15% recyceltes Polyester.
+- **All four hoodies with a description in the feed (Eisvogel Linolschnitt 4456776688, Eisvogel Aquarell 4456765739, Rotkehlchen 4456776174, Kranich 4456775454):** the description opens with `100% Bio-Baumwolle`, the spec list says 85% Bio-Baumwolle / 15% recyceltes Polyester. Found by searching all of `feed.tsv`; the two newer hoodies (Stieglitz 4566856835, Blaumeise 4566831572) do not use that opening.
 - **Stieglitz bag 4456775774:** sold as `Jutebeutel` but described as 100% Bio-Baumwolle. Pick one material word.
-- **Zaunkönig T-Shirt 4456775286:** title claims `Kleinster Vogel Europas`; that is the Goldhähnchen, not the Zaunkönig.
-- **`mit Spruch` mugs (Eisvogel 4494001018, Amsel 4493994193):** confirm the verse is printed on the mug; only the Zaunkönig mug's description says so.
+- **Zaunkönig T-Shirt 4456775286:** title claims `Kleinster Vogel Europas`; the Sommer- und Wintergoldhähnchen are smaller. The descriptions say `einer der kleinsten heimischen Vögel`, which is correct.
+- **`mit Spruch Aquarell` mugs:** nine of the twelve `mit Spruch` mugs (Eichelhäher 4493994473, Kranich 4493994277, Eisvogel 4494001018, Stieglitz 4493994155, Amsel 4493994193, Nachtigall 4493994241, Dompfaff 4493994321, Waldkauz 4494001374, Schwalbe 4493994357) say nothing about a verse in the opening of the description. Only the Zaunkönig, Blaumeise and Rotkehlchen `Spruch` mugs do. Confirm from the listing photos that the verse is printed, then say so in the first line (or drop `mit Spruch` from the title).
 
 ## Rules the drafts follow
 
@@ -57,7 +57,7 @@ Shop-wide: 68 new views in the six days between the first and last snapshot (abo
 - **Style words separate the Robin listings.** Six Robin listings exist (T-shirt, hoodie, Aquarell mug, mug mit Gedicht, linocut poster, botanical poster). Aquarell, Linolschnitt, Botanische Illustration and Spruch decide which listing a query should land on.
 - **English keyword kept** at the end of every title.
 - **Limits:** every title is at most 140 characters, every tag set has exactly 13 tags of at most 20 characters, no repeats within a set, and no `:`, `%` or `&` in titles (Etsy restricts those characters in titles, from memory; commas only are used, so the restriction cannot apply). Checked by script, not by eye.
-- **Seasonal tags.** `Weihnachtsgeschenk`, `Wichtelgeschenk`, `Nikolausgeschenk` are on purpose for the next three weeks. Swap them in January for `Geburtstagsgeschenk` and `Muttertagsgeschenk`. Before publishing, confirm the order cut-off for Christmas delivery: the listings say 1 to 5 working days processing plus 2 to 4 days shipping within Germany, made on demand.
+- **Seasonal tags.** `Weihnachtsgeschenk`, `Wichtelgeschenk`, `Nikolausgeschenk` are on purpose for the next three weeks. Swap them in January for `Geburtstagsgeschenk` and `Muttertagsgeschenk`. `Weihnachtsgeschenk` is also in the **titles** of nine drafts (Robin T-shirt, Robin mug, Robin linocut poster, Blaumeise T-shirt, Eisvogel mug, Stieglitz T-shirt, Amsel mug, Zaunkönig T-shirt, Zaunkönig mug), and the Robin T-shirt's second description line opens "Ein Weihnachtsgeschenk". Take it out of those titles and that line in January too. Before publishing, confirm the order cut-off for Christmas delivery: the listings say 1 to 5 working days processing plus 2 to 4 days shipping within Germany, made on demand.
 - **Tail-only edits on the two proven listings.** For the Robin mug and Robin T-shirt the first words are unchanged, so any change in views is attributable to the tail and tags.
 - **Description lines** are two sentences each, the first with the product, motif, material and size, the second with who it is for and the verse that already opens the live text. Free shipping is mentioned only for the mug, because only the mug description says it.
 
@@ -213,7 +213,7 @@ Paste: Eisvogel Tasse, Vogel Tasse, Kaffeetasse Vogel, Spruchtasse Vogel, Tasse 
 >
 > Spülmaschinen- und mikrowellengeeignet, bedruckt in Deutschland, eine Geschenkidee für Vogel- und Naturliebhaber:innen. „Ein Blitz aus Kobalt, dann Stille, der Fluss hält den Atem an.“
 
-**Check before publishing:** Title says `mit Spruch`, but the feed description's first sentence does not say the verse is printed on the mug (the Zaunkönig `mit Spruch` mug says so explicitly). Check the listing photos before publishing the description lines above.
+**Check before publishing:** Title says `mit Spruch`, but the feed description's first sentence does not say the verse is printed on the mug (the Zaunkönig `mit Spruch` mug says so explicitly). Check the listing photos before publishing the description lines above (the same gap affects eight more `mit Spruch Aquarell` mugs, see the problems section).
 
 ### 8. Rotkehlchen Poster A2 Botanische Illustration · [4456775420](https://www.etsy.com/listing/4456775420)
 
@@ -379,5 +379,5 @@ Paste: Zaunkönig Shirt, Vogel T-Shirt, Gartenvogel Shirt, Bio Baumwolle Shirt, 
 >
 > Ein Geschenk, das Naturliebe trägt. „Klein, doch sein Lied bricht durch den Morgen.“
 
-**Check before publishing:** Current title claims `Kleinster Vogel Europas`. That is not true: Gold- and Wintergoldhähnchen are smaller than the Zaunkönig. Removed in the draft; the Zaunkönig poster and mug titles do not make the claim.
+**Check before publishing:** Current title claims `Kleinster Vogel Europas`. That is not true: Sommer- und Wintergoldhähnchen are smaller than the Zaunkönig. Removed in the draft; the Zaunkönig poster and mug titles do not make the claim.
 
